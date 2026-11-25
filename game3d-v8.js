@@ -1,4 +1,5 @@
-/* 猫鸭塔防 · 守卫小鱼干（3D 版）
+/* 猫鸭塔防 · 守卫池塘（3D 版 v8：环湖岛）
+ * 整张图是湖，陆地是一座湖心岛；老鼠过桥上岛，走到南岸偷池塘里的鱼。
  * 玩法与数值与 2D 版一致；渲染换成 three.js（已转译为 ES2017 经典脚本）。
  * 小工具规范：ES2017 经典脚本，无内联事件，无外部资源，无联网，纯 Canvas WebGL。
  */
@@ -54,16 +55,17 @@
   }
 
   /* ---------- 地图（逻辑坐标，与 2D 版一致） ---------- */
+  /* 环湖岛：桥上岛，S 形绕岛一圈，南岸是终点；路总长 1540（旧 2270） */
   var PATH = [
-    { x: -30, y: 130 }, { x: 590, y: 130 }, { x: 590, y: 330 },
-    { x: 130, y: 330 }, { x: 130, y: 530 }, { x: 590, y: 530 },
-    { x: 590, y: 700 }, { x: 750, y: 700 }
+    { x: 360, y: 0 }, { x: 360, y: 95 }, { x: 360, y: 170 },
+    { x: 480, y: 170 }, { x: 480, y: 330 }, { x: 200, y: 330 },
+    { x: 200, y: 510 }, { x: 480, y: 510 }, { x: 480, y: 650 },
+    { x: 360, y: 650 }, { x: 360, y: 740 }
   ];
-  var FISH = { x: 665, y: 700 };
   var PADS = [
-    { x: 180, y: 230 }, { x: 360, y: 230 }, { x: 540, y: 230 },
-    { x: 180, y: 430 }, { x: 360, y: 430 }, { x: 540, y: 430 },
-    { x: 180, y: 630 }, { x: 360, y: 630 }
+    { x: 290, y: 250 }, { x: 410, y: 250 },
+    { x: 290, y: 420 }, { x: 410, y: 420 }, { x: 120, y: 420 }, { x: 550, y: 420 },
+    { x: 290, y: 580 }, { x: 410, y: 580 }
   ];
   var PAD_R = 36;
 
@@ -89,11 +91,12 @@
   }
 
   /* ---------- 敌（老鼠） ---------- */
+  /* 岛版路程较短，速度 ×0.8 找补 */
   var ENEMY_TYPES = {
-    normal:  { name: '田鼠',   hp: 30, speed: 42, reward: 6,   steal: 1, r: 15, color: '#9e9e9e' },
-    fast:    { name: '疾行鼠', hp: 21, speed: 80, reward: 8,   steal: 1, r: 13, color: '#bcaaa4' },
-    armored: { name: '铁甲鼠', hp: 66, speed: 26, reward: 14,  steal: 1, r: 17, color: '#78909c' },
-    boss:    { name: '鼠王',   hp: 750, speed: 22, reward: 120, steal: 5, r: 26, color: '#5d4037' }
+    normal:  { name: '田鼠',   hp: 30, speed: 34, reward: 6,   steal: 1, r: 15, color: '#9e9e9e' },
+    fast:    { name: '疾行鼠', hp: 21, speed: 64, reward: 8,   steal: 1, r: 13, color: '#bcaaa4' },
+    armored: { name: '铁甲鼠', hp: 66, speed: 21, reward: 14,  steal: 1, r: 17, color: '#78909c' },
+    boss:    { name: '鼠王',   hp: 750, speed: 18, reward: 120, steal: 5, r: 26, color: '#5d4037' }
   };
 
   /* ---------- 状态 ---------- */
@@ -184,7 +187,8 @@
   /* ---------- 鸭子 ---------- */
   function duckCharge() {
     if (state.duck || state.duckCd > 0 || !state.started || state.over) return;
-    state.duck = { seg: 0, t: 0, hit: {}, x: PATH[0].x, y: PATH[0].y };
+    /* 鸭子住在南岸湖上，冲锋时从终点往回撞（沿路逆行） */
+    state.duck = { seg: 0, t: 0, hit: {}, x: PATH[PATH.length - 1].x, y: PATH[PATH.length - 1].y };
     state.duckCd = 25;
     sfx('duck');
   }
@@ -269,6 +273,7 @@
           state.enemies.splice(i, 1);
           state.fish -= e.steal;
           sfx('leak');
+          burst(e.x, e.y, '#4aa3df');
           showToast('老鼠偷走了 ' + e.steal + ' 条鱼！');
           if (state.fish <= 0) { state.fish = 0; gameOver(); }
           refreshHUD();
@@ -336,7 +341,7 @@
       if (seg >= PATH.length - 1) {
         state.duck = null;
       } else {
-        var a = PATH[seg], b = PATH[seg + 1], f = segFloat - seg;
+        var a = PATH[PATH.length - 1 - seg], b = PATH[PATH.length - 2 - seg], f = segFloat - seg;
         dk.x = a.x + (b.x - a.x) * f;
         dk.y = a.y + (b.y - a.y) * f;
         for (j = state.enemies.length - 1; j >= 0; j--) {
@@ -411,10 +416,10 @@
   var enemyMesh = null, enemyShadow = null;
   var projMesh = null, partMesh = null;
   var towerShadowMesh = null, starMesh = null, cloudMesh = null;
-  var sunLight = null, pondTex = null, pondCtx = null, pondTimer = 0;
+  var sunLight = null, lakeTex = null, lakeCtx = null, lakeTimer = 0;
   var sparkleMesh = null, cloudShadowMeshes = [], pollenMesh = null, pollenSeeds = [];
+  var fishMesh = null, fishSeeds = [];
   var shadowOff = false, shadowFrames = 0;
-  var POND = { x: -6.8, z: 8.9, r: 2.3 };
   var MAX_ENEMY = 48, MAX_PROJ = 40, MAX_PART = 60;
   var dummy = null, tmpColor = null;
   var toonGradient = null, toonMat = null;
@@ -518,6 +523,11 @@
     g.translate(x, y, z);
     return colorize(g, color);
   }
+  function box(w, h, d, color, x, y, z) {
+    var g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    return colorize(g, color);
+  }
 
   /* 猫：按 Bindy 家布偶猫照片改的造型 —— 白身、灰耳、脸颊灰斑、蓝眼睛、粉鼻、灰色大毛尾；4 种塔靠项圈颜色 + 脚边标志物区分 */
   function catGeometry(typeKey) {
@@ -601,6 +611,14 @@
     return mergeParts(parts);
   }
 
+  /* 湖里的鱼：扁身 + 尾巴 */
+  function fishGeometry() {
+    return mergeParts([
+      sphere(0.28, 8, 6, '#7fc4f5', 0, 0, 0, 1.5, 0.55, 0.8),
+      cone(0.14, 0.3, '#5a9bd4', 0, 0, -0.35, -Math.PI / 2, 0, 0)
+    ]);
+  }
+
   /* 装饰：树 / 花 / 灌木 / 云 / 石头，全部合并成单几何体后实例化 */
   function treeGeometry() {
     return mergeParts([
@@ -649,8 +667,8 @@
     tmpColor = new THREE.Color();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     scene = new THREE.Scene();
-    scene.background = new THREE.Color('#ffeecf');
-    scene.fog = new THREE.Fog(new THREE.Color('#ffeecf'), 32, 58);
+    scene.background = new THREE.Color('#cfe9f5');
+    scene.fog = new THREE.Fog(new THREE.Color('#cfe9f5'), 32, 58);
 
     var aspect = W / H;
     camera = new THREE.OrthographicCamera(-11.5 * aspect, 11.5 * aspect, 11.5, -11.5, 0.1, 100);
@@ -675,20 +693,56 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    /* 地面：程序草地纹理 */
-    var grassTex = grassTexture();
-    grassTex.repeat.set(4, 4);
-    var ground = new THREE.Mesh(
-      new THREE.BoxGeometry(19.5, 0.5, 22.5),
-      new THREE.MeshLambertMaterial({ map: grassTex })
+    /* 湖面：整张图都是水，水面涟漪是逐帧重画的程序纹理 */
+    var lakeCanvas = document.createElement('canvas');
+    lakeCanvas.width = 512; lakeCanvas.height = 512;
+    lakeCtx = lakeCanvas.getContext('2d');
+    lakeTex = new THREE.CanvasTexture(lakeCanvas);
+    lakeTex.colorSpace = THREE.SRGBColorSpace;
+    var lake = new THREE.Mesh(
+      new THREE.PlaneGeometry(19.5, 22.5),
+      new THREE.MeshLambertMaterial({ map: lakeTex, emissive: new THREE.Color('#1a4a6a'), emissiveIntensity: 0.25 })
     );
-    ground.position.set(0, -0.25, 0);
-    ground.receiveShadow = true;
-    scene.add(ground);
-    /* 路：程序泥土纹理 */
+    lake.rotation.x = -Math.PI / 2;
+    lake.position.set(0, -0.1, 0);
+    lake.receiveShadow = true;
+    scene.add(lake);
+    /* 湖心岛：草地椭圆 + 一圈沙滩边 */
+    var islandTex = grassTexture();
+    islandTex.repeat.set(3, 3);
+    var rim = new THREE.Mesh(new THREE.CircleGeometry(1, 48), lambert('#d9c9a8'));
+    rim.rotation.x = -Math.PI / 2;
+    rim.scale.set(7.75, 8.5, 1);
+    rim.position.set(0, -0.05, 0);
+    rim.receiveShadow = true;
+    scene.add(rim);
+    var island = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 48),
+      new THREE.MeshLambertMaterial({ map: islandTex })
+    );
+    island.rotation.x = -Math.PI / 2;
+    island.scale.set(7.5, 8.25, 1);
+    island.position.set(0, 0, 0);
+    island.receiveShadow = true;
+    scene.add(island);
+    /* 木桥：从图顶边通到岛北岸，老鼠从这里上岛 */
+    var bridgeParts = [];
+    var pz;
+    for (pz = -11.0; pz <= -8.2; pz += 0.55) {
+      bridgeParts.push(box(1.5, 0.08, 0.5, '#a9713f', 0, 0, pz));
+    }
+    bridgeParts.push(box(0.12, 0.12, 3.0, '#8d5a2b', -0.72, 0.08, -9.6));
+    bridgeParts.push(box(0.12, 0.12, 3.0, '#8d5a2b', 0.72, 0.08, -9.6));
+    [[-0.72, -11.0], [0.72, -11.0], [-0.72, -8.3], [0.72, -8.3]].forEach(function (s) {
+      bridgeParts.push(box(0.1, 0.5, 0.1, '#8d5a2b', s[0], 0.25, s[1]));
+    });
+    var bridge = new THREE.Mesh(mergeParts(bridgeParts), toonMaterial());
+    bridge.castShadow = true;
+    scene.add(bridge);
+    /* 路：程序泥土纹理（第 0 段是桥，不铺土） */
     var dirtTex = dirtTexture();
     var i;
-    for (i = 0; i < PATH.length - 1; i++) {
+    for (i = 1; i < PATH.length - 1; i++) {
       var a = PATH[i], b = PATH[i + 1];
       var len = dist(a.x, a.y, b.x, b.y) / 40;
       var seg = new THREE.Mesh(
@@ -715,71 +769,50 @@
       scene.add(ring);
       towerGroups.push(null);
     });
-    /* 鱼堆：碗 + 3 条小鱼 */
-    var bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.6, 0.35, 16), lambert('#b08968'));
-    bowl.position.set(wx(FISH.x), 0.18, wz(FISH.y));
-    bowl.castShadow = true;
-    scene.add(bowl);
-    for (i = 0; i < 3; i++) {
-      var fish = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), lambert('#7fc4f5'));
-      fish.scale.set(1.5, 0.55, 0.8);
-      fish.position.set(wx(FISH.x) - 0.35 + i * 0.35, 0.45 + i * 0.12, wz(FISH.y));
-      fish.rotation.y = 0.5;
-      fish.castShadow = true;
-      scene.add(fish);
-    }
-    /* 池塘：左下角，水面涟漪是逐帧重画的程序纹理 */
-    var pondCanvas = document.createElement('canvas');
-    pondCanvas.width = 256; pondCanvas.height = 256;
-    pondCtx = pondCanvas.getContext('2d');
-    pondTex = new THREE.CanvasTexture(pondCanvas);
-    pondTex.colorSpace = THREE.SRGBColorSpace;
-    var pond = new THREE.Mesh(
-      new THREE.CircleGeometry(POND.r, 32),
-      new THREE.MeshLambertMaterial({ map: pondTex, transparent: true, opacity: 0.96, emissive: new THREE.Color('#1a4a6a'), emissiveIntensity: 0.25 })
-    );
-    pond.rotation.x = -Math.PI / 2;
-    pond.position.set(POND.x, 0.05, POND.z);
-    pond.receiveShadow = true;
-    scene.add(pond);
-    var bank = new THREE.Mesh(new THREE.TorusGeometry(POND.r, 0.14, 6, 32), lambert('#d9c9a8'));
-    bank.rotation.x = Math.PI / 2;
-    bank.position.set(POND.x, 0.06, POND.z);
-    bank.receiveShadow = true;
-    scene.add(bank);
-    /* 荷叶 + 荷花 */
-    var lilySpots = [[-7.4, 9.3, 0.45], [-6.2, 8.5, 0.35], [-7.0, 8.2, 0.3]];
+    /* 荷叶 + 荷花：漂在岛边的湖面上 */
+    var lilySpots = [[7, 4.5, 0.45], [-7, 4.5, 0.35], [0, 9.5, 0.4], [-6, -6.75, 0.3]];
     lilySpots.forEach(function (s) {
       var lily = new THREE.Mesh(new THREE.CircleGeometry(s[2], 16), lambert('#4e9a3d'));
       lily.rotation.x = -Math.PI / 2;
-      lily.position.set(s[0], 0.07, s[1]);
+      lily.position.set(s[0], -0.08, s[1]);
       scene.add(lily);
     });
     var lotus = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), lambert('#ff8fab'));
     lotus.scale.set(1, 0.6, 1);
-    lotus.position.set(-6.2, 0.14, 8.5);
+    lotus.position.set(7, -0.02, 4.5);
     scene.add(lotus);
-    /* 芦苇：围着池塘边 */
+    /* 芦苇：长在岛岸边的水里 */
     var reedParts = [];
-    var reedSpots = [[-4.8, 10.05], [-7.2, 11.16], [-8.95, 9.68], [-9.55, 7.41], [-6.4, 6.64], [-4.6, 8.1]];
+    var reedSpots = [[-5.25, 7.5], [6, 7.5], [7.625, 0.75], [-7.5, -3]];
     reedSpots.forEach(function (s) {
-      reedParts.push(cyl(0.035, 0.035, 1.2, '#4e9a3d', s[0], 0.6, s[1]));
-      reedParts.push(cyl(0.09, 0.09, 0.35, '#8d6e63', s[0], 1.3, s[1]));
+      reedParts.push(cyl(0.035, 0.035, 1.2, '#4e9a3d', s[0], 0.5, s[1]));
+      reedParts.push(cyl(0.09, 0.09, 0.35, '#8d6e63', s[0], 1.2, s[1]));
     });
     var reeds = new THREE.Mesh(mergeParts(reedParts), toonMaterial());
     reeds.castShadow = true;
     scene.add(reeds);
-    /* 水面闪光 */
-    var sparkleSpots = [[-7.8, 9.3], [-6.2, 9.0], [-7.0, 8.6], [-5.9, 9.2], [-7.4, 8.3], [-6.6, 9.5]];
+    /* 水面闪光：绕岛一圈 */
+    var sparkleSpots = [[7, 6.5], [-6.75, 6.5], [7.75, 0], [-7.875, 0], [0, 9.75], [-5.25, -7.5]];
     sparkleMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), sparkleSpots.length);
     sparkleSpots.forEach(function (s, k) {
-      dummy.position.set(s[0], 0.09, s[1]);
+      dummy.position.set(s[0], -0.06, s[1]);
       dummy.scale.set(0.08, 0.08, 0.08);
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       sparkleMesh.setMatrixAt(k, dummy.matrix);
     });
     scene.add(sparkleMesh);
+    /* 湖里的鱼：20 条绕岛游，被偷一条就少一条 */
+    for (i = 0; i < 20; i++) {
+      fishSeeds.push({
+        rx: 8.8 + Math.random() * 0.7, rz: 10 + Math.random() * 1,
+        a: Math.random() * Math.PI * 2,
+        sp: (0.05 + Math.random() * 0.07) * (Math.random() < 0.5 ? 1 : -1)
+      });
+    }
+    fishMesh = new THREE.InstancedMesh(fishGeometry(), toonMaterial(), 20);
+    fishMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(fishMesh);
     /* 飘动的云影：大片淡淡的影子慢慢划过草地 */
     var cloudShadowZ = [-4, 1, 6];
     cloudShadowZ.forEach(function (z) {
@@ -799,7 +832,7 @@
       });
     }
     scene.add(pollenMesh);
-    drawPond(0);
+    drawLake(0);
     /* 射程圈 */
     rangeRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.0, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
     rangeRing.rotation.x = -Math.PI / 2;
@@ -844,7 +877,7 @@
     scene.add(partMesh);
 
     /* 场景装饰：树 / 花 / 灌木 / 石头（手摆位置，避开路和建造点） */
-    var treeSpots = [[-8.7, -10], [8.7, -10], [-8.7, -4.5], [8.7, -0.5], [-9.2, 5.5], [8.7, 10]];
+    var treeSpots = [[5.5, 4.125], [2.25, 7.375], [-2.25, 7.375], [-5.5, 4.125], [-5.25, 4.5], [-5.25, -4.125], [5.5, -4.125]];
     var treeMesh = new THREE.InstancedMesh(treeGeometry(), toonMaterial(), treeSpots.length);
     treeMesh.castShadow = true;
     treeSpots.forEach(function (s, k) {
@@ -855,7 +888,7 @@
       treeMesh.setMatrixAt(k, dummy.matrix);
     });
     scene.add(treeMesh);
-    var bushSpots = [[-8.6, 6.5], [8.6, 6.8], [-8.6, -7.8], [8.6, -7.6], [-2.5, -10.2], [3.5, 10.4]];
+    var bushSpots = [[-2.75, 7.375], [2.75, 7.375], [6.75, 0.5], [6, 3.5]];
     var bushMesh = new THREE.InstancedMesh(bushGeometry(), toonMaterial(), bushSpots.length);
     bushMesh.castShadow = true;
     bushSpots.forEach(function (s, k) {
@@ -866,7 +899,7 @@
       bushMesh.setMatrixAt(k, dummy.matrix);
     });
     scene.add(bushMesh);
-    var rockSpots = [[-2.8, 10.5], [6.9, -4.2], [-8.9, 2.8], [8.9, 9.6], [2.2, -10.3]];
+    var rockSpots = [[-1.5, 7.75], [1.5, 7.75], [6.875, -1]];
     var rockMesh = new THREE.InstancedMesh(rockGeometry(), toonMaterial(), rockSpots.length);
     rockMesh.castShadow = true;
     rockSpots.forEach(function (s, k) {
@@ -878,8 +911,8 @@
     });
     scene.add(rockMesh);
     var flowerSpots = [
-      [-3.5, 9.8], [-3, -9.5], [2, -9.8], [6, -9.2], [-7.5, -9], [-4, 10.2],
-      [1.5, 9.6], [5.5, 8.8], [-8.9, -1.5], [8.9, 2.2], [-6.5, -5.8], [7.2, 5.6]
+      [-3, -4], [-0.5, -4], [-2.75, 3.5], [-0.25, 3.5],
+      [-6.25, -1.25], [6.5, -3], [-3.5, 7], [-1.5, 7.5]
     ];
     var flowerColors = ['#ff8fab', '#ffd93b', '#c77dff', '#ff8fab', '#ffd93b', '#c77dff', '#ff8fab', '#ffd93b', '#c77dff', '#ff8fab', '#ffd93b', '#c77dff'];
     var flowerMesh = new THREE.InstancedMesh(flowerGeometry(), toonMaterial(), flowerSpots.length);
@@ -925,33 +958,34 @@
     camera.updateProjectionMatrix();
   }
 
-  /* 水面：蓝绿渐变底 + 扩散的涟漪圈 + 几道反光 */
-  function drawPond(now) {
-    if (!pondCtx) return;
-    var g = pondCtx, s = 256;
+  /* 湖面：蓝绿渐变底 + 满湖扩散的涟漪圈 + 几道反光 */
+  function drawLake(now) {
+    if (!lakeCtx) return;
+    var g = lakeCtx, s = 512;
     var grad = g.createLinearGradient(0, 0, s, s);
     grad.addColorStop(0, '#6fc3e8');
     grad.addColorStop(1, '#2f7fc9');
     g.fillStyle = grad;
     g.fillRect(0, 0, s, s);
+    var spots = [[0.15, 0.2], [0.8, 0.15], [0.5, 0.5], [0.2, 0.8], [0.85, 0.75], [0.35, 0.35], [0.65, 0.6], [0.1, 0.55]];
     var k, r, a;
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < spots.length; k++) {
       r = ((now * 0.06 + k * 55) % 120) + 8;
       a = 0.45 * (1 - r / 130);
       if (a <= 0) continue;
       g.strokeStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
       g.lineWidth = 3;
       g.beginPath();
-      g.arc(128 + Math.sin(k * 2.1) * 30, 128 + Math.cos(k * 1.7) * 30, r, 0, Math.PI * 2);
+      g.arc(spots[k][0] * s, spots[k][1] * s, r, 0, Math.PI * 2);
       g.stroke();
     }
     g.strokeStyle = 'rgba(255,255,255,0.18)';
     g.lineWidth = 5;
     for (k = 0; k < 3; k++) {
-      var y = 40 + k * 80 + Math.sin(now * 0.001 + k) * 6;
+      var y = 80 + k * 160 + Math.sin(now * 0.001 + k) * 6;
       g.beginPath();
-      g.moveTo(30, y);
-      g.lineTo(110 + k * 30, y + 8);
+      g.moveTo(60, y);
+      g.lineTo(220 + k * 60, y + 8);
       g.stroke();
     }
   }
@@ -961,23 +995,39 @@
     if (!sunLight) return;
     sunLight.position.set(8 + Math.sin(now * 0.00012) * 2.5, 9, 5 + Math.cos(now * 0.00009) * 2);
     sunLight.intensity = 1.25 + Math.sin(now * 0.0004) * 0.1;
-    pondTimer += dt;
-    if (pondTimer > 0.12) {
-      pondTimer = 0;
-      drawPond(now);
-      if (pondTex) pondTex.needsUpdate = true;
+    lakeTimer += dt;
+    if (lakeTimer > 0.12) {
+      lakeTimer = 0;
+      drawLake(now);
+      if (lakeTex) lakeTex.needsUpdate = true;
     }
     var i;
     if (sparkleMesh) {
       for (i = 0; i < 6; i++) {
         var sc = 0.05 + 0.08 * (0.5 + 0.5 * Math.sin(now * 0.005 + i * 1.3));
-        dummy.position.set([-7.8, -6.2, -7.0, -5.9, -7.4, -6.6][i], 0.09, [9.3, 9.0, 8.6, 9.2, 8.3, 9.5][i]);
+        dummy.position.set([7, -6.75, 7.75, -7.875, 0, -5.25][i], -0.06, [6.5, 6.5, 0, 0, 9.75, -7.5][i]);
         dummy.scale.set(sc, sc, sc);
         dummy.rotation.set(0, 0, 0);
         dummy.updateMatrix();
         sparkleMesh.setMatrixAt(i, dummy.matrix);
       }
       sparkleMesh.instanceMatrix.needsUpdate = true;
+    }
+    /* 湖里的鱼绕岛游；数量跟着剩下的鱼走 */
+    if (fishMesh) {
+      for (i = 0; i < 20; i++) {
+        var fs = fishSeeds[i];
+        fs.a += fs.sp * dt;
+        var fx = fs.rx * Math.cos(fs.a), fz = fs.rz * Math.sin(fs.a);
+        var fvx = -fs.rx * Math.sin(fs.a) * fs.sp, fvz = fs.rz * Math.cos(fs.a) * fs.sp;
+        dummy.position.set(fx, -0.02, fz);
+        dummy.scale.set(1.2, 1.2, 1.2);
+        dummy.rotation.set(0, Math.atan2(fvx, fvz), 0);
+        dummy.updateMatrix();
+        fishMesh.setMatrixAt(i, dummy.matrix);
+      }
+      fishMesh.count = Math.max(0, Math.min(20, state.fish));
+      fishMesh.instanceMatrix.needsUpdate = true;
     }
     for (i = 0; i < cloudShadowMeshes.length; i++) {
       var cs = cloudShadowMeshes[i];
@@ -1145,7 +1195,7 @@
     partMesh.count = qn;
     partMesh.instanceMatrix.needsUpdate = true;
     if (partMesh.instanceColor) partMesh.instanceColor.needsUpdate = true;
-    /* 鸭子 */
+    /* 鸭子：冲锋时沿路跑；闲时住在南岸湖面上，轻轻浮动 */
     if (state.duck) {
       duckGroup.visible = true;
       duckGroup.position.set(wx(state.duck.x), 0.2, wz(state.duck.y));
@@ -1153,8 +1203,11 @@
       duckShadow.visible = true;
       duckShadow.position.set(wx(state.duck.x), 0.03, wz(state.duck.y));
     } else {
-      duckGroup.visible = false;
-      duckShadow.visible = false;
+      duckGroup.visible = true;
+      duckGroup.position.set(2.25, 0.08 + Math.sin(performance.now() * 0.002) * 0.04, 9.5);
+      duckGroup.rotation.y = -0.6;
+      duckShadow.visible = true;
+      duckShadow.position.set(2.25, -0.06, 9.5);
     }
   }
 
