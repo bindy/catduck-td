@@ -71,7 +71,7 @@
   var TOWER_TYPES = {
     yarn:   { name: '橘猫', sub: '毛线球', cost: 50,  range: 115, dmg: 9,  rate: 2.2, color: '#f39c12', desc: '攻速快，射程短', proj: 'yarn' },
     pounce: { name: '狸花猫', sub: '扑击', cost: 100, range: 135, dmg: 20, rate: 0.9, color: '#8d6e63', desc: '溅射伤害，打一片', proj: 'paw', splash: 55 },
-    ice:    { name: '白猫', sub: '冰爪', cost: 80,  range: 125, dmg: 5,  rate: 1.5, color: '#ecf0f1', desc: '冻住老鼠 40%', proj: 'snow', slow: 0.6, slowDur: 1.4 },
+    ice:    { name: '白猫', sub: '冰爪', cost: 80,  range: 125, dmg: 5,  rate: 1.5, color: '#7fb3e0', desc: '冻住老鼠 40%', proj: 'snow', slow: 0.6, slowDur: 1.4 },
     snipe:  { name: '黑猫', sub: '狙击', cost: 150, range: 230, dmg: 60, rate: 0.45, color: '#2c3e50', desc: '射程远，伤害高', proj: 'dart' }
   };
   var TOWER_ORDER = ['yarn', 'pounce', 'ice', 'snipe'];
@@ -518,31 +518,48 @@
     g.translate(x, y, z);
     return colorize(g, color);
   }
+  function octa(r, color, x, y, z) {
+    var g = new THREE.OctahedronGeometry(r);
+    g.translate(x, y, z);
+    return colorize(g, color);
+  }
 
-  /* 猫：大头圆身 + 粉色内耳 + 眼睛 + 腮红，4 种颜色各一个几何体 */
-  function catGeometry(color) {
-    if (catGeos[color]) return catGeos[color];
-    var dark = '#333333', pink = '#f7a8b8';
+  /* 猫：按 Bindy 家布偶猫照片改的造型 —— 白身、灰耳、脸颊灰斑、蓝眼睛、粉鼻、灰色大毛尾；4 种塔靠项圈颜色 + 脚边标志物区分 */
+  function catGeometry(typeKey) {
+    if (catGeos[typeKey]) return catGeos[typeKey];
+    var white = '#f7f4ee', grey = '#8a8f96', pink = '#f7a8b8';
+    var typeColor = TOWER_TYPES[typeKey].color;
     var parts = [
-      sphere(0.55, 14, 12, color, 0, 0.45, 0, 1, 0.85, 1),
-      sphere(0.46, 14, 12, color, 0, 1.0, 0.08),
-      cone(0.17, 0.34, color, -0.26, 1.38, 0.06, 0, 0, 0.28),
-      cone(0.17, 0.34, color, 0.26, 1.38, 0.06, 0, 0, -0.28),
+      sphere(0.55, 14, 12, white, 0, 0.45, 0, 1, 0.85, 1),
+      sphere(0.46, 14, 12, white, 0, 1.0, 0.08),
+      sphere(0.25, 10, 8, grey, 0, 0.55, -0.42, 1, 0.7, 0.5),
+      cone(0.17, 0.34, grey, -0.26, 1.38, 0.06, 0, 0, 0.28),
+      cone(0.17, 0.34, grey, 0.26, 1.38, 0.06, 0, 0, -0.28),
       cone(0.09, 0.18, pink, -0.26, 1.34, 0.12, 0, 0, 0.28),
       cone(0.09, 0.18, pink, 0.26, 1.34, 0.12, 0, 0, -0.28),
-      sphere(0.06, 8, 6, dark, -0.17, 1.05, 0.5),
-      sphere(0.06, 8, 6, dark, 0.17, 1.05, 0.5),
+      sphere(0.2, 10, 8, grey, -0.32, 1.06, 0.32, 0.8, 0.9, 0.5),
+      sphere(0.2, 10, 8, grey, 0.32, 1.06, 0.32, 0.8, 0.9, 0.5),
+      sphere(0.06, 8, 6, '#5a9bd4', -0.17, 1.05, 0.5),
+      sphere(0.06, 8, 6, '#5a9bd4', 0.17, 1.05, 0.5),
+      sphere(0.02, 6, 4, '#ffffff', -0.15, 1.07, 0.55),
+      sphere(0.02, 6, 4, '#ffffff', 0.15, 1.07, 0.55),
       sphere(0.07, 8, 6, '#e75480', 0, 0.96, 0.52, 1, 0.7, 0.6),
       sphere(0.09, 8, 6, pink, -0.3, 0.92, 0.42, 1, 0.6, 0.5),
       sphere(0.09, 8, 6, pink, 0.3, 0.92, 0.42, 1, 0.6, 0.5),
-      torus(0.42, 0.09, color, -0.58, 0.55, -0.28, 0.3, 0.4, 0.9)
+      torus(0.5, 0.13, grey, -0.58, 0.55, -0.28, 0.3, 0.4, 0.9),
+      torus(0.36, 0.07, typeColor, 0, 0.78, 0.06, Math.PI / 2, 0, 0)
     ];
+    /* 脚边标志物：毛线球 / 扑击爪 / 冰晶 / 狙击镜 */
+    if (typeKey === 'yarn') parts.push(sphere(0.22, 10, 8, typeColor, 0.48, 0.22, 0.35));
+    else if (typeKey === 'pounce') parts.push(cone(0.12, 0.32, typeColor, -0.48, 0.3, 0.4, Math.PI / 2.5, 0, 0));
+    else if (typeKey === 'ice') parts.push(octa(0.2, typeColor, 0.48, 0.35, 0.35));
+    else if (typeKey === 'snipe') parts.push(cyl(0.07, 0.07, 0.5, typeColor, 0.48, 0.35, 0.35));
     var geo = mergeParts(parts);
-    catGeos[color] = geo;
+    catGeos[typeKey] = geo;
     return geo;
   }
-  function buildCat(color) {
-    var m = new THREE.Mesh(catGeometry(color), toonMaterial());
+  function buildCat(typeKey) {
+    var m = new THREE.Mesh(catGeometry(typeKey), toonMaterial());
     return m;
   }
 
@@ -1030,7 +1047,7 @@
     PADS.forEach(function (p, idx) {
       tw = state.towers[idx];
       if (tw && !towerGroups[idx]) {
-        var g = buildCat(TOWER_TYPES[tw.type].color);
+        var g = buildCat(tw.type);
         g.position.set(wx(p.x), 0.2, wz(p.y));
         g.traverse(function (o) { o.userData.padIndex = idx; o.castShadow = true; });
         scene.add(g);
