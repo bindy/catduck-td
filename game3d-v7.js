@@ -69,10 +69,10 @@
 
   /* ---------- 塔（猫） ---------- */
   var TOWER_TYPES = {
-    yarn:   { name: '橘猫', sub: '毛线球', cost: 50,  range: 115, dmg: 9,  rate: 2.2, color: '#f39c12', desc: '攻速快，射程短', proj: 'yarn' },
-    pounce: { name: '狸花猫', sub: '扑击', cost: 100, range: 135, dmg: 20, rate: 0.9, color: '#8d6e63', desc: '溅射伤害，打一片', proj: 'paw', splash: 55 },
-    ice:    { name: '白猫', sub: '冰爪', cost: 80,  range: 125, dmg: 5,  rate: 1.5, color: '#7fb3e0', desc: '冻住老鼠 40%', proj: 'snow', slow: 0.6, slowDur: 1.4 },
-    snipe:  { name: '黑猫', sub: '狙击', cost: 150, range: 230, dmg: 60, rate: 0.45, color: '#2c3e50', desc: '射程远，伤害高', proj: 'dart' }
+    yarn:   { name: '布偶猫', sub: '毛线球', cost: 50,  range: 115, dmg: 9,  rate: 2.2, color: '#f39c12', desc: '攻速快，射程短', proj: 'yarn' },
+    pounce: { name: '布偶猫', sub: '扑击', cost: 100, range: 135, dmg: 20, rate: 0.9, color: '#8d6e63', desc: '溅射伤害，打一片', proj: 'paw', splash: 55 },
+    ice:    { name: '布偶猫', sub: '冰爪', cost: 80,  range: 125, dmg: 5,  rate: 1.5, color: '#7fb3e0', desc: '冻住老鼠 40%', proj: 'snow', slow: 0.6, slowDur: 1.4 },
+    snipe:  { name: '布偶猫', sub: '狙击', cost: 150, range: 230, dmg: 60, rate: 0.45, color: '#2c3e50', desc: '射程远，伤害高', proj: 'dart' }
   };
   var TOWER_ORDER = ['yarn', 'pounce', 'ice', 'snipe'];
 
@@ -518,11 +518,6 @@
     g.translate(x, y, z);
     return colorize(g, color);
   }
-  function octa(r, color, x, y, z) {
-    var g = new THREE.OctahedronGeometry(r);
-    g.translate(x, y, z);
-    return colorize(g, color);
-  }
 
   /* 猫：按 Bindy 家布偶猫照片改的造型 —— 白身、灰耳、脸颊灰斑、蓝眼睛、粉鼻、灰色大毛尾；4 种塔靠项圈颜色 + 脚边标志物区分 */
   function catGeometry(typeKey) {
@@ -549,11 +544,16 @@
       torus(0.5, 0.13, grey, -0.58, 0.55, -0.28, 0.3, 0.4, 0.9),
       torus(0.36, 0.07, typeColor, 0, 0.78, 0.06, Math.PI / 2, 0, 0)
     ];
-    /* 脚边标志物：毛线球 / 扑击爪 / 冰晶 / 狙击镜 */
+    /* 脚边标志物：毛线球 / 扑击爪 / 冰晶 / 狙击镜（注意：八面体是非索引几何体，和球体/锥体混在一起合并会失败，所以冰晶用两个锥体拼成双锥） */
     if (typeKey === 'yarn') parts.push(sphere(0.22, 10, 8, typeColor, 0.48, 0.22, 0.35));
     else if (typeKey === 'pounce') parts.push(cone(0.12, 0.32, typeColor, -0.48, 0.3, 0.4, Math.PI / 2.5, 0, 0));
-    else if (typeKey === 'ice') parts.push(octa(0.2, typeColor, 0.48, 0.35, 0.35));
+    else if (typeKey === 'ice') {
+      parts.push(cone(0.14, 0.24, typeColor, 0.48, 0.44, 0.35, 0, 0, 0));
+      parts.push(cone(0.14, 0.24, typeColor, 0.48, 0.24, 0.35, Math.PI, 0, 0));
+    }
     else if (typeKey === 'snipe') parts.push(cyl(0.07, 0.07, 0.5, typeColor, 0.48, 0.35, 0.35));
+    /* 背上的彩色鞍：从俯视角度也能一眼分清是哪种塔 */
+    parts.push(sphere(0.3, 10, 8, typeColor, 0, 0.82, -0.18, 1, 0.45, 1.1));
     var geo = mergeParts(parts);
     catGeos[typeKey] = geo;
     return geo;
