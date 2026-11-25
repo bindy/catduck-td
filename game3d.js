@@ -403,73 +403,218 @@
     refreshWaveBtn();
   }
 
-  /* ---------- 3D 场景 ---------- */
+
+  /* ---------- 3D 场景（卡通渲染版） ---------- */
   var renderer = null, scene = null, camera = null, glOK = true;
   var padMeshes = [], towerGroups = [], pickList = [];
-  var rangeRing = null, crown = null, duckGroup = null;
-  var enemyBody = null, enemyEar = null, enemyNose = null, enemyShadow = null;
+  var rangeRing = null, crown = null, duckGroup = null, duckShadow = null;
+  var enemyMesh = null, enemyShadow = null;
   var projMesh = null, partMesh = null;
+  var towerShadowMesh = null, starMesh = null, cloudMesh = null;
   var MAX_ENEMY = 48, MAX_PROJ = 40, MAX_PART = 60;
-  var dummy = null;
-  var matCache = {};
-  var tmpColor = null;
+  var dummy = null, tmpColor = null;
+  var toonGradient = null, toonMat = null;
+  var catGeos = {};
+  var cloudBases = [];
 
+  /* 给几何体刷上顶点色（合并后靠顶点色区分部件） */
+  function colorize(geo, color) {
+    var c = new THREE.Color(color);
+    var n = geo.attributes.position.count;
+    var arr = new Float32Array(n * 3);
+    var i;
+    for (i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    return geo;
+  }
+  function mergeParts(parts) {
+    return THREE.mergeGeometries(parts, false);
+  }
+  function toonMaterial() {
+    if (!toonMat) {
+      if (!toonGradient) {
+        var data = new Uint8Array([90, 150, 205, 255]);
+        toonGradient = new THREE.DataTexture(data, 4, 1, THREE.RedFormat);
+        toonGradient.minFilter = THREE.NearestFilter;
+        toonGradient.magFilter = THREE.NearestFilter;
+        toonGradient.needsUpdate = true;
+      }
+      toonMat = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonGradient });
+    }
+    return toonMat;
+  }
   function lambert(color) {
-    if (!matCache[color]) matCache[color] = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
-    return matCache[color];
-  }
-  function basic(color) {
-    var k = 'b' + color;
-    if (!matCache[k]) matCache[k] = new THREE.MeshBasicMaterial({ color: new THREE.Color(color) });
-    return matCache[k];
+    return new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
   }
 
+  /* 程序纹理：纯代码画的草地 / 泥土，没有任何外部图片 */
+  function canvasTexture(size, draw) {
+    var c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    draw(c.getContext('2d'), size);
+    var tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  function grassTexture() {
+    return canvasTexture(256, function (g, s) {
+      g.fillStyle = '#79c25f'; g.fillRect(0, 0, s, s);
+      var i, x, y;
+      for (i = 0; i < 900; i++) {
+        x = Math.random() * s; y = Math.random() * s;
+        g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.06)' : 'rgba(0,80,0,0.08)';
+        g.fillRect(x, y, 2, 2);
+      }
+      g.strokeStyle = 'rgba(255,255,255,0.10)'; g.lineWidth = 1.5;
+      for (i = 0; i < 90; i++) {
+        x = Math.random() * s; y = Math.random() * s;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + 2, y - 6); g.stroke();
+      }
+    });
+  }
+  function dirtTexture() {
+    return canvasTexture(256, function (g, s) {
+      g.fillStyle = '#d9a86c'; g.fillRect(0, 0, s, s);
+      var i, x, y, r;
+      for (i = 0; i < 500; i++) {
+        x = Math.random() * s; y = Math.random() * s; r = 1 + Math.random() * 3;
+        g.fillStyle = Math.random() < 0.5 ? 'rgba(120,70,20,0.12)' : 'rgba(255,240,200,0.12)';
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      }
+      for (i = 0; i < 40; i++) {
+        x = Math.random() * s; y = Math.random() * s;
+        g.strokeStyle = 'rgba(120,70,20,0.15)'; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + 6, y + 3); g.stroke();
+      }
+    });
+  }
+
+  /* ---------- 模型：每个角色先拼零件再合并成一个几何体 ---------- */
+  function sphere(r, w, h, color, x, y, z, sx, sy, sz) {
+    var g = new THREE.SphereGeometry(r, w || 12, h || 10);
+    g.scale(sx || 1, sy || 1, sz || 1);
+    g.translate(x, y, z);
+    return colorize(g, color);
+  }
+  function cone(r, h, color, x, y, z, rx, ry, rz) {
+    var g = new THREE.ConeGeometry(r, h, 8);
+    g.rotateX(rx || 0); g.rotateY(ry || 0); g.rotateZ(rz || 0);
+    g.translate(x, y, z);
+    return colorize(g, color);
+  }
+  function torus(r, t, color, x, y, z, rx, ry, rz, arc) {
+    var g = new THREE.TorusGeometry(r, t, 6, 12, arc || Math.PI * 0.9);
+    g.rotateX(rx || 0); g.rotateY(ry || 0); g.rotateZ(rz || 0);
+    g.translate(x, y, z);
+    return colorize(g, color);
+  }
+  function cyl(rt, rb, h, color, x, y, z) {
+    var g = new THREE.CylinderGeometry(rt, rb, h, 10);
+    g.translate(x, y, z);
+    return colorize(g, color);
+  }
+
+  /* 猫：大头圆身 + 粉色内耳 + 眼睛 + 腮红，4 种颜色各一个几何体 */
+  function catGeometry(color) {
+    if (catGeos[color]) return catGeos[color];
+    var dark = '#333333', pink = '#f7a8b8';
+    var parts = [
+      sphere(0.55, 14, 12, color, 0, 0.45, 0, 1, 0.85, 1),
+      sphere(0.46, 14, 12, color, 0, 1.0, 0.08),
+      cone(0.17, 0.34, color, -0.26, 1.38, 0.06, 0, 0, 0.28),
+      cone(0.17, 0.34, color, 0.26, 1.38, 0.06, 0, 0, -0.28),
+      cone(0.09, 0.18, pink, -0.26, 1.34, 0.12, 0, 0, 0.28),
+      cone(0.09, 0.18, pink, 0.26, 1.34, 0.12, 0, 0, -0.28),
+      sphere(0.06, 8, 6, dark, -0.17, 1.05, 0.5),
+      sphere(0.06, 8, 6, dark, 0.17, 1.05, 0.5),
+      sphere(0.07, 8, 6, '#e75480', 0, 0.96, 0.52, 1, 0.7, 0.6),
+      sphere(0.09, 8, 6, pink, -0.3, 0.92, 0.42, 1, 0.6, 0.5),
+      sphere(0.09, 8, 6, pink, 0.3, 0.92, 0.42, 1, 0.6, 0.5),
+      torus(0.42, 0.09, color, -0.58, 0.55, -0.28, 0.3, 0.4, 0.9)
+    ];
+    var geo = mergeParts(parts);
+    catGeos[color] = geo;
+    return geo;
+  }
   function buildCat(color) {
-    var g = new THREE.Group();
-    var body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), lambert(color));
-    body.scale.set(1, 0.82, 1);
-    body.position.y = 0.45;
-    g.add(body);
-    var head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), lambert(color));
-    head.position.set(0, 0.95, 0.1);
-    g.add(head);
-    var earGeo = new THREE.ConeGeometry(0.16, 0.32, 6);
-    var earL = new THREE.Mesh(earGeo, lambert(color));
-    earL.position.set(-0.24, 1.32, 0.08);
-    earL.rotation.z = 0.25;
-    g.add(earL);
-    var earR = new THREE.Mesh(earGeo, lambert(color));
-    earR.position.set(0.24, 1.32, 0.08);
-    earR.rotation.z = -0.25;
-    g.add(earR);
-    var nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), lambert('#e75480'));
-    nose.position.set(0, 0.9, 0.5);
-    g.add(nose);
-    var tail = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.09, 6, 10, Math.PI * 0.9), lambert(color));
-    tail.position.set(-0.55, 0.55, -0.25);
-    tail.rotation.set(0.3, 0.4, 0.9);
-    g.add(tail);
-    return g;
+    var m = new THREE.Mesh(catGeometry(color), toonMaterial());
+    return m;
   }
 
+  /* 鸭子：圆身 + 大头 + 扁喙 + 小翅膀 */
+  function duckGeometry() {
+    var parts = [
+      sphere(0.55, 14, 12, '#ffd93b', 0, 0.5, 0, 1, 0.85, 1.25),
+      sphere(0.4, 14, 12, '#ffd93b', 0, 1.08, 0.32),
+      sphere(0.2, 10, 8, '#f39c12', 0, 1.02, 0.72, 1.2, 0.55, 0.9),
+      sphere(0.06, 8, 6, '#333333', -0.15, 1.14, 0.66),
+      sphere(0.06, 8, 6, '#333333', 0.15, 1.14, 0.66),
+      sphere(0.09, 8, 6, '#f7a8b8', -0.3, 1.0, 0.55, 1, 0.6, 0.5),
+      sphere(0.09, 8, 6, '#f7a8b8', 0.3, 1.0, 0.55, 1, 0.6, 0.5),
+      cone(0.12, 0.3, '#ffd93b', 0, 1.48, 0.28),
+      sphere(0.3, 10, 8, '#f2c230', -0.52, 0.55, -0.05, 0.5, 0.9, 1.1),
+      sphere(0.3, 10, 8, '#f2c230', 0.52, 0.55, -0.05, 0.5, 0.9, 1.1)
+    ];
+    return mergeParts(parts);
+  }
   function buildDuck() {
-    var g = new THREE.Group();
-    var body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), lambert('#ffd93b'));
-    body.scale.set(1, 0.85, 1.25);
-    body.position.y = 0.5;
-    g.add(body);
-    var head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), lambert('#ffd93b'));
-    head.position.set(0, 1.05, 0.35);
-    g.add(head);
-    var beak = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), lambert('#f39c12'));
-    beak.scale.set(1.2, 0.55, 0.9);
-    beak.position.set(0, 1.0, 0.72);
-    g.add(beak);
-    var tuft = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6), lambert('#ffd93b'));
-    tuft.position.set(0, 1.45, 0.3);
-    g.add(tuft);
-    g.visible = false;
-    return g;
+    var m = new THREE.Mesh(duckGeometry(), toonMaterial());
+    m.visible = false;
+    return m;
+  }
+
+  /* 老鼠：圆身 + 大圆耳 + 粉鼻 + 细尾巴（实例化用，颜色靠 instanceColor 微调） */
+  function mouseGeometry() {
+    var parts = [
+      sphere(0.5, 12, 10, '#ffffff', 0, 0.32, 0, 1, 0.8, 1.15),
+      sphere(0.2, 10, 8, '#ffffff', -0.3, 0.62, -0.05, 1, 1, 0.4),
+      sphere(0.2, 10, 8, '#ffffff', 0.3, 0.62, -0.05, 1, 1, 0.4),
+      sphere(0.11, 8, 6, '#f7a8b8', -0.3, 0.62, 0.14, 1, 1, 0.4),
+      sphere(0.11, 8, 6, '#f7a8b8', 0.3, 0.62, 0.14, 1, 1, 0.4),
+      sphere(0.08, 8, 6, '#e75480', 0, 0.3, 0.55, 1, 0.7, 0.6),
+      sphere(0.05, 8, 6, '#333333', -0.14, 0.4, 0.48),
+      sphere(0.05, 8, 6, '#333333', 0.14, 0.4, 0.48),
+      torus(0.35, 0.045, '#b0a090', 0, 0.22, -0.62, Math.PI / 2.3, 0, 0, Math.PI * 1.1)
+    ];
+    return mergeParts(parts);
+  }
+
+  /* 装饰：树 / 花 / 灌木 / 云 / 石头，全部合并成单几何体后实例化 */
+  function treeGeometry() {
+    return mergeParts([
+      cyl(0.16, 0.22, 0.7, '#8d6e63', 0, 0.35, 0),
+      sphere(0.75, 12, 10, '#5da24a', 0, 1.25, 0),
+      sphere(0.55, 12, 10, '#6fbf5a', 0.25, 1.75, 0.1),
+      sphere(0.4, 10, 8, '#f2a541', 0.55, 1.1, 0.35),
+      sphere(0.4, 10, 8, '#f2a541', -0.5, 1.35, 0.3)
+    ]);
+  }
+  function flowerGeometry() {
+    return mergeParts([
+      cyl(0.03, 0.03, 0.35, '#4e9a3d', 0, 0.17, 0),
+      sphere(0.13, 8, 6, '#ffffff', 0, 0.4, 0)
+    ]);
+  }
+  function bushGeometry() {
+    return mergeParts([
+      sphere(0.5, 10, 8, '#5da24a', 0, 0.3, 0),
+      sphere(0.35, 10, 8, '#6fbf5a', 0.4, 0.22, 0.1),
+      sphere(0.3, 10, 8, '#6fbf5a', -0.38, 0.2, -0.05)
+    ]);
+  }
+  function cloudGeometry() {
+    return mergeParts([
+      sphere(0.7, 10, 8, '#ffffff', 0, 0, 0, 1.4, 0.75, 1),
+      sphere(0.5, 10, 8, '#ffffff', -0.7, -0.05, 0.1),
+      sphere(0.45, 10, 8, '#ffffff', 0.7, -0.08, -0.05)
+    ]);
+  }
+  function rockGeometry() {
+    return mergeParts([
+      sphere(0.4, 8, 6, '#b0bec5', 0, 0.16, 0, 1.2, 0.55, 1),
+      sphere(0.25, 8, 6, '#90a4ae', 0.35, 0.1, 0.15, 1, 0.5, 0.9)
+    ]);
   }
 
   function initGL() {
@@ -483,61 +628,63 @@
     tmpColor = new THREE.Color();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     scene = new THREE.Scene();
-    scene.background = new THREE.Color('#fdf6e3');
-    scene.fog = new THREE.Fog(new THREE.Color('#fdf6e3'), 30, 55);
+    scene.background = new THREE.Color('#ffeecf');
+    scene.fog = new THREE.Fog(new THREE.Color('#ffeecf'), 32, 58);
 
     var aspect = W / H;
     camera = new THREE.OrthographicCamera(-11.5 * aspect, 11.5 * aspect, 11.5, -11.5, 0.1, 100);
-    camera.position.set(0, 20, 14);
+    camera.position.set(0, 19, 15);
     camera.lookAt(0, 0, 0.5);
     camera.updateProjectionMatrix();
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8fce7a, 1.15));
-    var sun = new THREE.DirectionalLight(0xfff2d9, 1.1);
+    scene.add(new THREE.HemisphereLight(0xfff6e0, 0x7fb35a, 1.25));
+    var sun = new THREE.DirectionalLight(0xfff2d9, 1.25);
     sun.position.set(6, 12, 4);
     scene.add(sun);
 
-    /* 地面 */
-    var ground = new THREE.Mesh(new THREE.BoxGeometry(19.5, 0.5, 22.5), lambert('#8fce7a'));
+    /* 地面：程序草地纹理 */
+    var grassTex = grassTexture();
+    grassTex.repeat.set(4, 4);
+    var ground = new THREE.Mesh(
+      new THREE.BoxGeometry(19.5, 0.5, 22.5),
+      new THREE.MeshLambertMaterial({ map: grassTex })
+    );
     ground.position.set(0, -0.25, 0);
     scene.add(ground);
-    /* 草地斑点 */
+    /* 路：程序泥土纹理 */
+    var dirtTex = dirtTexture();
     var i;
-    for (i = 0; i < 40; i++) {
-      var dot = new THREE.Mesh(new THREE.CircleGeometry(0.12 + Math.random() * 0.16, 8), basic('#a5dd8f'));
-      dot.rotation.x = -Math.PI / 2;
-      dot.position.set((Math.random() - 0.5) * 18, 0.01, (Math.random() - 0.5) * 21);
-      scene.add(dot);
-    }
-    /* 路：按逻辑路径逐段铺 */
     for (i = 0; i < PATH.length - 1; i++) {
       var a = PATH[i], b = PATH[i + 1];
       var len = dist(a.x, a.y, b.x, b.y) / 40;
-      var seg = new THREE.Mesh(new THREE.BoxGeometry(len + 0.4, 0.08, 1.35), lambert('#d9b380'));
+      var seg = new THREE.Mesh(
+        new THREE.BoxGeometry(len + 0.4, 0.08, 1.35),
+        new THREE.MeshLambertMaterial({ map: dirtTex })
+      );
       seg.position.set(wx((a.x + b.x) / 2), 0.04, wz((a.y + b.y) / 2));
       seg.rotation.y = -Math.atan2(b.y - a.y, b.x - a.x);
       scene.add(seg);
     }
-    /* 建造点 */
+    /* 建造点：石墩 + 描边圆环 */
     PADS.forEach(function (p, idx) {
-      var pad = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 0.22, 20), lambert('#d7ccc8'));
+      var pad = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.05, 0.22, 20), lambert('#e8e0d0'));
       pad.position.set(wx(p.x), 0.11, wz(p.y));
       pad.userData.padIndex = idx;
       scene.add(pad);
       padMeshes.push(pad);
       pickList.push(pad);
-      var ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.05, 6, 24), lambert('#a1887f'));
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.06, 6, 24), lambert('#c9b8a3'));
       ring.rotation.x = Math.PI / 2;
       ring.position.set(wx(p.x), 0.24, wz(p.y));
       scene.add(ring);
       towerGroups.push(null);
     });
-    /* 鱼堆 */
-    var bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.6, 0.35, 16), lambert('#a1887f'));
+    /* 鱼堆：碗 + 3 条小鱼 */
+    var bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.6, 0.35, 16), lambert('#b08968'));
     bowl.position.set(wx(FISH.x), 0.18, wz(FISH.y));
     scene.add(bowl);
     for (i = 0; i < 3; i++) {
-      var fish = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), lambert('#90caf9'));
+      var fish = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), lambert('#7fc4f5'));
       fish.scale.set(1.5, 0.55, 0.8);
       fish.position.set(wx(FISH.x) - 0.35 + i * 0.35, 0.45 + i * 0.12, wz(FISH.y));
       fish.rotation.y = 0.5;
@@ -556,26 +703,92 @@
     /* 鸭子 */
     duckGroup = buildDuck();
     scene.add(duckGroup);
-    /* 敌人：实例化 */
-    enemyBody = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_ENEMY);
-    enemyBody.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(enemyBody);
-    enemyEar = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_ENEMY * 2);
-    enemyEar.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(enemyEar);
-    enemyNose = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 5), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_ENEMY);
-    enemyNose.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(enemyNose);
-    enemyShadow = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }), MAX_ENEMY);
+    duckShadow = new THREE.Mesh(new THREE.CircleGeometry(0.6, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.16 }));
+    duckShadow.rotation.x = -Math.PI / 2;
+    duckShadow.position.y = 0.03;
+    duckShadow.visible = false;
+    scene.add(duckShadow);
+    /* 敌人：合并后的老鼠几何体，实例化 */
+    enemyMesh = new THREE.InstancedMesh(mouseGeometry(), toonMaterial(), MAX_ENEMY);
+    enemyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(enemyMesh);
+    enemyShadow = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.16 }), MAX_ENEMY);
     enemyShadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(enemyShadow);
-    /* 弹道与粒子：实例化 */
+    /* 塔下影子 */
+    towerShadowMesh = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15 }), PADS.length);
+    towerShadowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(towerShadowMesh);
+    /* 等级小星星 */
+    starMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: 0xffd93b }), PADS.length * 2);
+    starMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(starMesh);
+    /* 弹道与粒子 */
     projMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_PROJ);
     projMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(projMesh);
     partMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_PART);
     partMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(partMesh);
+
+    /* 场景装饰：树 / 花 / 灌木 / 石头（手摆位置，避开路和建造点） */
+    var treeSpots = [[-8.7, -10], [8.7, -10], [-8.7, 10], [8.7, 10], [-8.7, -4.5], [8.7, -0.5]];
+    var treeMesh = new THREE.InstancedMesh(treeGeometry(), toonMaterial(), treeSpots.length);
+    treeSpots.forEach(function (s, k) {
+      dummy.position.set(s[0], 0, s[1]);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, k * 1.1, 0);
+      dummy.updateMatrix();
+      treeMesh.setMatrixAt(k, dummy.matrix);
+    });
+    scene.add(treeMesh);
+    var bushSpots = [[-8.6, 6.5], [8.6, 6.8], [-8.6, -7.8], [8.6, -7.6], [-2.5, -10.2], [3.5, 10.4]];
+    var bushMesh = new THREE.InstancedMesh(bushGeometry(), toonMaterial(), bushSpots.length);
+    bushSpots.forEach(function (s, k) {
+      dummy.position.set(s[0], 0, s[1]);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, k * 0.7, 0);
+      dummy.updateMatrix();
+      bushMesh.setMatrixAt(k, dummy.matrix);
+    });
+    scene.add(bushMesh);
+    var rockSpots = [[-6.8, 10.3], [6.9, -4.2], [-8.9, 2.8], [8.9, 9.6], [2.2, -10.3]];
+    var rockMesh = new THREE.InstancedMesh(rockGeometry(), toonMaterial(), rockSpots.length);
+    rockSpots.forEach(function (s, k) {
+      dummy.position.set(s[0], 0, s[1]);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, k * 1.3, 0);
+      dummy.updateMatrix();
+      rockMesh.setMatrixAt(k, dummy.matrix);
+    });
+    scene.add(rockMesh);
+    var flowerSpots = [
+      [-7.5, -9], [-3, -9.5], [2, -9.8], [6, -9.2], [-7.8, 8.6], [-4, 10.2],
+      [1.5, 9.6], [5.5, 8.8], [-8.9, -1.5], [8.9, 2.2], [-6.5, -5.8], [7.2, 5.6]
+    ];
+    var flowerColors = ['#ff8fab', '#ffd93b', '#c77dff', '#ff8fab', '#ffd93b', '#c77dff', '#ff8fab', '#ffd93b', '#c77dff', '#ff8fab', '#ffd93b', '#c77dff'];
+    var flowerMesh = new THREE.InstancedMesh(flowerGeometry(), toonMaterial(), flowerSpots.length);
+    flowerSpots.forEach(function (s, k) {
+      dummy.position.set(s[0], 0, s[1]);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      flowerMesh.setMatrixAt(k, dummy.matrix);
+      tmpColor.set(flowerColors[k]);
+      flowerMesh.setColorAt(k, tmpColor);
+    });
+    scene.add(flowerMesh);
+    /* 云：4 朵，慢慢飘 */
+    cloudBases = [[-6, 7, -6], [4, 8.5, -8], [-2, 7.5, 9], [7, 8, 7]];
+    cloudMesh = new THREE.InstancedMesh(cloudGeometry(), toonMaterial(), cloudBases.length);
+    cloudBases.forEach(function (s, k) {
+      dummy.position.set(s[0], s[1], s[2]);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      cloudMesh.setMatrixAt(k, dummy.matrix);
+    });
+    scene.add(cloudMesh);
 
     canvas.addEventListener('webglcontextlost', function (evt) {
       evt.preventDefault();
@@ -597,6 +810,21 @@
     camera.updateProjectionMatrix();
   }
 
+  function driftClouds(now) {
+    if (!cloudMesh) return;
+    var i;
+    for (i = 0; i < cloudBases.length; i++) {
+      var b = cloudBases[i];
+      var x = b[0] + Math.sin(now * 0.00008 + i * 1.7) * 1.2;
+      dummy.position.set(x, b[1], b[2]);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      cloudMesh.setMatrixAt(i, dummy.matrix);
+    }
+    cloudMesh.instanceMatrix.needsUpdate = true;
+  }
+
   /* ---------- 每帧同步 3D ---------- */
   var PROJ_COLOR = { yarn: '#e74c3c', paw: '#8d6e63', snow: '#aed6f1', dart: '#2c3e50' };
 
@@ -615,11 +843,11 @@
   function syncScene() {
     var i, e, tw;
     /* 塔 */
+    var towerCount = 0, starCount = 0;
     PADS.forEach(function (p, idx) {
       tw = state.towers[idx];
       if (tw && !towerGroups[idx]) {
         var g = buildCat(TOWER_TYPES[tw.type].color);
-        g.userData.color = TOWER_TYPES[tw.type].color;
         g.position.set(wx(p.x), 0.2, wz(p.y));
         g.traverse(function (o) { o.userData.padIndex = idx; });
         scene.add(g);
@@ -633,25 +861,27 @@
       }
       if (towerGroups[idx]) {
         var g2 = towerGroups[idx];
-        var want = TOWER_TYPES[tw.type].color;
-        if (g2.userData.color !== want) {
-          scene.remove(g2);
-          var gi2 = pickList.indexOf(g2);
-          if (gi2 !== -1) pickList.splice(gi2, 1);
-          var g3 = buildCat(want);
-          g3.position.set(wx(p.x), 0.2, wz(p.y));
-          g3.traverse(function (o) { o.userData.padIndex = idx; });
-          g3.userData.color = want;
-          scene.add(g3);
-          towerGroups[idx] = g3;
-          pickList.push(g3);
-        }
         g2.rotation.y = -tw.angle + Math.PI / 2;
         var sc = 1 + (tw.level - 1) * 0.14;
         g2.scale.set(sc, sc, sc);
-        g2.userData.color = want;
+        setInst(towerShadowMesh, towerCount, wx(p.x), 0.03, wz(p.y), 0.85, 0.85, 0.85, null);
+        towerCount += 1;
+        var s;
+        for (s = 0; s < tw.level - 1; s++) {
+          var bob = Math.sin(performance.now() * 0.003 + idx + s) * 0.06;
+          dummy.position.set(wx(p.x) - 0.2 + s * 0.4, 1.75 + bob, wz(p.y));
+          dummy.scale.set(1, 1, 1);
+          dummy.rotation.set(0, performance.now() * 0.001 + s, 0);
+          dummy.updateMatrix();
+          starMesh.setMatrixAt(starCount, dummy.matrix);
+          starCount += 1;
+        }
       }
     });
+    towerShadowMesh.count = towerCount;
+    towerShadowMesh.instanceMatrix.needsUpdate = true;
+    starMesh.count = starCount;
+    starMesh.instanceMatrix.needsUpdate = true;
     /* 射程圈 */
     if (state.selTower >= 0 && state.towers[state.selTower]) {
       var st = towerStat(state.towers[state.selTower].type, state.towers[state.selTower].level);
@@ -662,7 +892,7 @@
     } else {
       rangeRing.visible = false;
     }
-    /* 敌人 */
+    /* 敌人：单实例化老鼠 */
     var n = Math.min(state.enemies.length, MAX_ENEMY);
     var now = performance.now() / 1000;
     var bossVisible = false;
@@ -671,29 +901,29 @@
       var r = e.r / 40;
       var ex = wx(e.x), ez = wz(e.y);
       var slowed = now < e.slowUntil;
-      var bodyColor = e.flash > 0 ? '#ffffff' : (slowed ? '#aed6f1' : e.color);
-      setInst(enemyBody, i, ex, 0.32 * r / 0.375, ez, r, r * 0.82, r, bodyColor);
-      setInst(enemyEar, i * 2, ex - r * 0.45, 0.62 * r / 0.375, ez - r * 0.1, r * 0.32, r * 0.32, r * 0.32, e.color);
-      setInst(enemyEar, i * 2 + 1, ex + r * 0.45, 0.62 * r / 0.375, ez - r * 0.1, r * 0.32, r * 0.32, r * 0.32, e.color);
-      setInst(enemyNose, i, ex, 0.3 * r / 0.375, ez + r * 0.85, r * 0.12, r * 0.12, r * 0.12, '#e75480');
+      var tint;
+      if (e.flash > 0) tint = '#ffffff';
+      else if (slowed) tint = '#bcd9ff';
+      else tint = e.color;
+      dummy.position.set(ex, 0, ez);
+      dummy.scale.set(r / 0.375, r / 0.375, r / 0.375);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      enemyMesh.setMatrixAt(i, dummy.matrix);
+      tmpColor.set(tint);
+      enemyMesh.setColorAt(i, tmpColor);
       setInst(enemyShadow, i, ex, 0.03, ez, r * 1.1, r * 1.1, r * 1.1, null);
       if (e.type === 'boss') {
         bossVisible = true;
         crown.visible = true;
-        crown.position.set(ex, 0.32 * (r / 0.375) + r * 0.82 + 0.18, ez);
+        crown.position.set(ex, 0.9 * (r / 0.375) + 0.3, ez);
       }
     }
-    enemyBody.count = n;
-    enemyEar.count = n * 2;
-    enemyNose.count = n;
+    enemyMesh.count = n;
     enemyShadow.count = n;
-    enemyBody.instanceMatrix.needsUpdate = true;
-    enemyEar.instanceMatrix.needsUpdate = true;
-    enemyNose.instanceMatrix.needsUpdate = true;
+    enemyMesh.instanceMatrix.needsUpdate = true;
     enemyShadow.instanceMatrix.needsUpdate = true;
-    if (enemyBody.instanceColor) enemyBody.instanceColor.needsUpdate = true;
-    if (enemyEar.instanceColor) enemyEar.instanceColor.needsUpdate = true;
-    if (enemyNose.instanceColor) enemyNose.instanceColor.needsUpdate = true;
+    if (enemyMesh.instanceColor) enemyMesh.instanceColor.needsUpdate = true;
     if (!bossVisible) crown.visible = false;
     /* 弹道 */
     var pn = Math.min(state.projectiles.length, MAX_PROJ);
@@ -709,8 +939,8 @@
     var qn = Math.min(state.particles.length, MAX_PART);
     for (i = 0; i < qn; i++) {
       var pt = state.particles[i];
-      var s = 0.12 * clamp(pt.life / pt.max, 0.05, 1);
-      setInst(partMesh, i, wx(pt.x), 0.6, wz(pt.y), s, s, s, pt.color);
+      var s2 = 0.12 * clamp(pt.life / pt.max, 0.05, 1);
+      setInst(partMesh, i, wx(pt.x), 0.6, wz(pt.y), s2, s2, s2, pt.color);
     }
     partMesh.count = qn;
     partMesh.instanceMatrix.needsUpdate = true;
@@ -720,8 +950,11 @@
       duckGroup.visible = true;
       duckGroup.position.set(wx(state.duck.x), 0.2, wz(state.duck.y));
       duckGroup.rotation.y += 0.2;
+      duckShadow.visible = true;
+      duckShadow.position.set(wx(state.duck.x), 0.03, wz(state.duck.y));
     } else {
       duckGroup.visible = false;
+      duckShadow.visible = false;
     }
   }
 
@@ -874,6 +1107,7 @@
       update(dt * state.speed);
     }
     if (glOK) {
+      driftClouds(now);
       syncScene();
       renderer.render(scene, camera);
       /* 自动降档：持续掉帧就把像素比降到 1 */
