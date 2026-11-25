@@ -1,4 +1,7 @@
-/* 猫鸭塔防 · 守卫池塘（3D 版 v8：环湖岛）
+/* 猫鸭塔防 · 守卫池塘（3D 版 v9：环湖岛）
+ * v9 与 v8 玩法/画面完全一致，只改两处：initGL 包 try/catch（3D 初始化一旦抛错，
+ * 把报错写进提示条并照常启动主循环，不再静默绿屏）；three.js 同步改名 three-v9.js 破缓存。
+ * v8 曾在个别浏览器里因旧版 three.js 缓存（无 PlaneGeometry）导致初始化抛错、主循环没启动。
  * 整张图是湖，陆地是一座湖心岛；老鼠过桥上岛，走到南岸偷池塘里的鱼。
  * 玩法与数值与 2D 版一致；渲染换成 three.js（已转译为 ES2017 经典脚本）。
  * 小工具规范：ES2017 经典脚本，无内联事件，无外部资源，无联网，纯 Canvas WebGL。
@@ -1295,6 +1298,14 @@
     );
     raycaster.setFromCamera(pointerNDC, camera);
     var hits = raycaster.intersectObjects(pickList, true);
+    if (!hits.length) {
+      /* 点到石墩正中心时，射线会穿过顶盖三角扇的公共顶点，浮点误差下可能
+       * 全判为不相交而漏点；挪一点点再射一次即可（玩家几乎点不到这么正） */
+      pointerNDC.x += 0.005;
+      pointerNDC.y += 0.005;
+      raycaster.setFromCamera(pointerNDC, camera);
+      hits = raycaster.intersectObjects(pickList, true);
+    }
     var i;
     for (i = 0; i < hits.length; i++) {
       var o = hits[i].object;
@@ -1389,13 +1400,24 @@
     }
     raycaster = new THREE.Raycaster();
     pointerNDC = new THREE.Vector2();
-    initGL();
+    var initErr = null;
+    try {
+      initGL();
+    } catch (err) {
+      /* 初始化一旦抛错也不能让主循环死掉：记下报错，游戏逻辑照常跑，3D 画面缺席而已 */
+      glOK = false;
+      initErr = err;
+      if (window.console && console.error) console.error('[catduck-td] initGL failed:', err);
+    }
     if (glOK) {
       canvas.addEventListener('click', onCanvasTap);
-    } else {
-      showToast('这台设备不支持 WebGL，玩不了 3D 版');
     }
     refreshHUD(); refreshWaveBtn(); refreshPanel();
+    if (initErr) {
+      showToast('3D 场景加载失败：' + (initErr.message || initErr) + '，请刷新再试');
+    } else if (!glOK) {
+      showToast('这台设备不支持 WebGL，玩不了 3D 版');
+    }
     requestAnimationFrame(loop);
   })();
 })();
