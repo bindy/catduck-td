@@ -643,7 +643,7 @@
 
     scene.add(new THREE.HemisphereLight(0xfff6e0, 0x7fb35a, 1.25));
     sunLight = new THREE.DirectionalLight(0xfff2d9, 1.25);
-    sunLight.position.set(6, 12, 4);
+    sunLight.position.set(8, 9, 5);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.set(1024, 1024);
     sunLight.shadow.camera.left = -13;
@@ -766,7 +766,7 @@
     /* 飘动的云影：大片淡淡的影子慢慢划过草地 */
     var cloudShadowZ = [-4, 1, 6];
     cloudShadowZ.forEach(function (z) {
-      var cs = new THREE.Mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.07 }));
+      var cs = new THREE.Mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.09 }));
       cs.rotation.x = -Math.PI / 2;
       cs.scale.set(2.6, 1.6, 1);
       cs.position.set(-12, 0.06, z);
@@ -919,11 +919,11 @@
     g.fillRect(0, 0, s, s);
     var k, r, a;
     for (k = 0; k < 4; k++) {
-      r = ((now * 0.03 + k * 55) % 120) + 8;
-      a = 0.35 * (1 - r / 130);
+      r = ((now * 0.06 + k * 55) % 120) + 8;
+      a = 0.45 * (1 - r / 130);
       if (a <= 0) continue;
       g.strokeStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
-      g.lineWidth = 2;
+      g.lineWidth = 3;
       g.beginPath();
       g.arc(128 + Math.sin(k * 2.1) * 30, 128 + Math.cos(k * 1.7) * 30, r, 0, Math.PI * 2);
       g.stroke();
@@ -942,7 +942,7 @@
   /* 光影动效：太阳缓慢摆动、云影漂移、水面闪光、光尘浮动 */
   function animateEnvironment(now, dt) {
     if (!sunLight) return;
-    sunLight.position.set(6 + Math.sin(now * 0.00008) * 2.5, 12, 4 + Math.cos(now * 0.00006) * 2);
+    sunLight.position.set(8 + Math.sin(now * 0.00012) * 2.5, 9, 5 + Math.cos(now * 0.00009) * 2);
     sunLight.intensity = 1.25 + Math.sin(now * 0.0004) * 0.1;
     pondTimer += dt;
     if (pondTimer > 0.12) {
@@ -953,7 +953,7 @@
     var i;
     if (sparkleMesh) {
       for (i = 0; i < 6; i++) {
-        var sc = 0.05 + 0.06 * (0.5 + 0.5 * Math.sin(now * 0.003 + i * 1.3));
+        var sc = 0.05 + 0.08 * (0.5 + 0.5 * Math.sin(now * 0.005 + i * 1.3));
         dummy.position.set([-7.8, -6.2, -7.0, -5.9, -7.4, -6.6][i], 0.09, [9.3, 9.0, 8.6, 9.2, 8.3, 9.5][i]);
         dummy.scale.set(sc, sc, sc);
         dummy.rotation.set(0, 0, 0);
@@ -964,7 +964,7 @@
     }
     for (i = 0; i < cloudShadowMeshes.length; i++) {
       var cs = cloudShadowMeshes[i];
-      var cx = -14 + ((now * 0.00045 + i * 9) % 28);
+      var cx = -14 + ((now * 0.0007 + i * 9) % 28);
       cs.position.x = cx;
     }
     if (pollenMesh) {
